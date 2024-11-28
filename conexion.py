@@ -11,7 +11,7 @@ BASE_URL = "http://goshort.ly/"
 # Configuración de conexión a la base de datos
 def get_db_connection():
     #database_url = "postgresql://postgres:IgtzJLbHpqJPoimAEYCVTqkDtQFFPqEz@autorack.proxy.rlwy.net:39767/railway"
-    database_url = "postgresql://postgres:IgtzJLbHpqJPoimAEYCVTqkDtQFFPqEz@autorack.proxy.rlwy.net:39767/goshort”
+    database_url = "postgresql://postgres:IgtzJLbHpqJPoimAEYCVTqkDtQFFPqEz@autorack.proxy.rlwy.net:39767/goshort"
     connection = psycopg2.connect(database_url)
     return connection
 
@@ -34,7 +34,7 @@ def shorten():
     try:
         # Verificar si ya existe una URL acortada para este usuario
         cursor.execute('''
-            SELECT url_id FROM URL WHERE destination = %s AND user_id = %s;
+            SELECT url_id FROM goshort.pro.URL WHERE base_url = %s AND user_id = %s;
         ''', (original_url, user_id))
         existing_url = cursor.fetchone()
 
@@ -42,14 +42,13 @@ def shorten():
             return jsonify({"url_short": f"{BASE_URL}{existing_url[0]}"}), 200
 
         # Generar un nuevo identificador único
-        short_id = generate_short_link()
-
+        short_id = BASE_URL + str(generate_short_link())
         # Insertar la nueva URL en la base de datos
         creation_date = datetime.utcnow()
         cursor.execute('''
-            INSERT INTO URL (url_id, destination, user_id, creation_date, visits)
-            VALUES (%s, %s, %s, %s, %s);
-        ''', (short_id, original_url, user_id, creation_date, 0))
+            INSERT INTO goshort.pro.URL (base_url, short_url, user_id)
+            VALUES (%s, %s, %s);
+        ''', (original_url, short_id, user_id))
         connection.commit()
 
         return jsonify({"url_short": f"{BASE_URL}{short_id}"}), 201
@@ -65,4 +64,4 @@ def shorten():
 
 # Ejecuta la aplicación
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=3000, debug=True)
+    app.run(debug=True)
