@@ -1,57 +1,68 @@
- 
 from flask import Flask, request, jsonify
 import uuid
-import logica
+import psycopg2
+from datetime import datetime
 
 app = Flask(__name__)
 
+# Dominio base del acortador
+BASE_URL = "http://goshort.ly/"
+
 # Configuración de conexión a la base de datos
 def get_db_connection():
-    database_url = "postgresql://postgres:IgtzJLbHpqJPoimAEYCVTqkDtQFFPqEz@autorack.proxy.rlwy.net:39767/railway"
+    #database_url = "postgresql://postgres:IgtzJLbHpqJPoimAEYCVTqkDtQFFPqEz@autorack.proxy.rlwy.net:39767/railway"
+    database_url = "postgresql://postgres:IgtzJLbHpqJPoimAEYCVTqkDtQFFPqEz@autorack.proxy.rlwy.net:39767/goshort”
     connection = psycopg2.connect(database_url)
     return connection
 
 # Generar un identificador único para la URL
 def generate_short_link():
-    """
-    Genera un identificador único para la URL corta.
-    """
     return uuid.uuid4().hex[:6]
-
-def shorten_url(original_url):
-    """
-    Acorta una URL y la almacena en el diccionario.
-    """
-    # Verificar si la URL ya existe en el diccionario
-    for short_id, url in url_map.items():
-        if url == original_url:
-            return BASE_URL + short_id
-
-    # Generar un nuevo identificador corto
-    short_id = generate_short_link()
-    while short_id in url_map:  # Asegurar unicidad
-        short_id = generate_short_link()
-
-    # Almacenar la URL en el diccionario
-    url_map[short_id] = original_url
-    return BASE_URL + short_id
-
 
 @app.route('/shorten', methods=['POST'])
 def shorten():
-    data = request.get_json()  # Obtén los datos JSON de la solicitud
-    original_url = data.get('original_url')  # URL original a acortar
+    data = request.get_json()
+    original_url = data.get('original_url')
+    user_id = data.get('user_id')  # ID del usuario
 
-    if not original_url:
-        return jsonify({"message": "Falta la URL original"}), 400
-    
-    else:
-        url_short = shorten_url(original_url)
+    if not original_url or not user_id:
+        return jsonify({"message": "Faltan datos obligatorios (original_url, user_id)"}), 400
 
-    return jsonify({"url_short": url_short})
+    connection = get_db_connection()
+    cursor = connection.cursor()
 
+    try:
+        # Verificar si ya existe una URL acortada para este usuario
+        cursor.execute('''
+            SELECT url_id FROM URL WHERE destination = %s AND user_id = %s;
+        ''', (original_url, user_id))
+        existing_url = cursor.fetchone()
+
+        if existing_url:
+            return jsonify({"url_short": f"{BASE_URL}{existing_url[0]}"}), 200
+
+        # Generar un nuevo identificador único
+        short_id = generate_short_link()
+
+        # Insertar la nueva URL en la base de datos
+        creation_date = datetime.utcnow()
+        cursor.execute('''
+            INSERT INTO URL (url_id, destination, user_id, creation_date, visits)
+            VALUES (%s, %s, %s, %s, %s);
+        ''', (short_id, original_url, user_id, creation_date, 0))
+        connection.commit()
+
+        return jsonify({"url_short": f"{BASE_URL}{short_id}"}), 201
+
+    except Exception as e:
+        print(f"Error al acortar la URL: {e}")
+        connection.rollback()
+        return jsonify({"message": "Error del servidor"}), 500
+
+    finally:
+        cursor.close()
+        connection.close()
 
 # Ejecuta la aplicación
 if __name__ == "__main__":
-    # Run the Flask application on localhost at port 3000
     app.run(host="127.0.0.1", port=3000, debug=True)
